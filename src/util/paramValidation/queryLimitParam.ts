@@ -1,5 +1,5 @@
 export const queryLimitParam = (rawLimit: string): number => {
-    const MAX_LIMIT = 10_000;
+    const MAX_LIMIT = 50_000;
 
     if (rawLimit === null) {
         return MAX_LIMIT;

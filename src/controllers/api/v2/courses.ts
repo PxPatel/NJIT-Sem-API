@@ -81,6 +81,7 @@ export const index = async (req: Request, res: Response): Promise<void> => {
         });
     }
 
+    console.log(filteredData.length);
     const modifiedData = formatMultiCourseData(filteredData);
 
     const curatedResponse = {

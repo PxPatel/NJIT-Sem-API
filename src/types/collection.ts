@@ -24,6 +24,11 @@ export interface AltCourseSemTypeWithChildCourseInfo
     course_id: AltCourseType;
 }
 
+export interface AltSectionTypeWithChildCourseSemesterInfo
+    extends Omit<AltSectionType, "co_sem_id"> {
+    co_sem_id: CourseSemesterType;
+}
+
 export type oneCourseType =
     | Record<string, never>
     | (AltCourseSemTypeWithChildCourseInfo & {
@@ -33,3 +38,7 @@ export type oneCourseType =
 export type MultiCoursesType =
     | Record<string, never>
     | AltCourseSemTypeWithChildCourseInfo;
+
+export type MultiSectionsType =
+    | Record<string, never>
+    | AltSectionTypeWithChildCourseSemesterInfo;

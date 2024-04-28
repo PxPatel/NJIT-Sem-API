@@ -1,116 +1,136 @@
 import { Request, Response } from "express";
 import supabase from "../../../supabase/initialize";
 import {
+    queryDaysParam,
+    queryDaysSelectionOptionParam,
     queryLimitParam,
-    removeZerosPadding,
+    querySemesterParam,
 } from "../../../util/paramValidation";
 import {
-    AltCourseType,
     AltSectionType,
-    oneCourseType,
+    AltSectionTypeWithChildCourseSemesterInfo,
+    CourseSemesterType,
 } from "../../../types/collection";
-import { querySemesterParam } from "../../../util/paramValidation/querySemesterParam";
 
-const COURSES_SEMESTER = "course_semester";
+const SECTIONS = "alt_sections";
 
 /**
  * @name Section
- * @slugs [semester, department, courseNumber, classLevel, limit]
+ * @slugs [semester, course, status, credits, instructor, days, daysSelectionOption, limit]
  *
  */
 export const index = async (req: Request, res: Response): Promise<void> => {
-    const semester = querySemesterParam((req.query.semester as string) ?? null);
-    const department = (req.query.department as string) ?? null;
-    const courseNumber = (req.query.courseNumber as string) ?? null;
-    const classLevel = (req.query.classLevel as string) ?? null;
-    const isValidClassLevel = classLevel !== null && Number(classLevel) >= 1;
-    const limit = queryLimitParam((req.query.limit as string) ?? null);
-
-    if (limit < 0) {
-        res.status(400).send({ error: "Invalid limit parameter" });
-        return;
-    }
-
-    if (!semester.isValid) {
-        res.status(400).send({ error: "Invalid semester parameter" });
-        return;
-    }
-
-    let sectionsQuery = supabase
-        .from(COURSES_SEMESTER)
-        .select("*, course_id!inner(*), alt_sections(*)")
-        .eq("semester_id", `${semester.season}_${semester.year}`);
-
-    if (department) {
-        sectionsQuery = sectionsQuery.eq(
-            "course_id.department",
-            department.toUpperCase(),
+    try {
+        const semester = querySemesterParam(
+            (req.query.semester as string) ?? null,
         );
-    }
-
-    if (courseNumber) {
-        sectionsQuery = sectionsQuery.eq(
-            "course_id.course_number",
-            courseNumber,
+        const limit = queryLimitParam((req.query.limit as string) ?? null);
+        const status = (req.query.status as string) ?? null;
+        const credits = (req.query.credits as string) ?? null;
+        const instructor = (req.query.instructor as string) ?? null;
+        const days = queryDaysParam((req.query.days as string) ?? null);
+        const daysSelectionOption = queryDaysSelectionOptionParam(
+            (req.query.DSO as string) ?? null,
         );
-    }
+        let course = (req.query.course as string) ?? null;
 
-    if (classLevel) {
-        if (isValidClassLevel) {
-            const root = removeZerosPadding(classLevel);
-            sectionsQuery = sectionsQuery.like(
-                "course_id.course_number",
-                `${root}%`,
-            );
-        } else {
-            res.status(422).send({ error: "Invalid class level parameter" });
+        if (limit < 0) {
+            res.status(400).send({
+                error: `Invalid limit parameter: ${req.query.limit as string}`,
+            });
             return;
         }
-    }
 
-    const { data, error } = await sectionsQuery
-        .limit(limit)
-        .returns<oneCourseType[]>();
-    if (error) {
-        console.log(error);
-        res.status(500).send({ error: "Internal Server Error" });
-        return;
-    }
+        if (!semester.isValid) {
+            res.status(400).send({
+                error: `Invalid semester parameter: ${
+                    (req.query.semester as string) ?? null
+                }`,
+            });
+            return;
+        }
 
-    let filteredData = data;
+        if (!days.isValid && typeof req.query.days !== "undefined") {
+            res.status(400).send({
+                error: `Invalid days parameter: ${req.query.days as string}`,
+            });
+            return;
+        }
 
-    if (isValidClassLevel) {
-        const trimmedClassLevel = Number(classLevel).toString(10);
+        const sectionsQuery = supabase
+            .from(SECTIONS)
+            .select("*, co_sem_id!inner(*)")
+            .eq("co_sem_id.semester_id", `${semester.season}_${semester.year}`);
 
-        filteredData = data.filter(course_sem => {
-            const numericalPart =
-                course_sem.course_id.course_number.match(/\d+/);
-            return (
-                numericalPart !== null &&
-                numericalPart[0] &&
-                numericalPart[0].length === trimmedClassLevel.length
+        if (course) {
+            course = course.toUpperCase();
+            sectionsQuery.eq(
+                "co_sem_id",
+                `${semester.season}${semester.year}_${course}`,
             );
-        });
+        }
+        if (status) {
+            sectionsQuery.eq("status", status);
+        }
+
+        if (credits) {
+            const numCredits = Number(credits);
+            if (!Number.isNaN(numCredits)) {
+                sectionsQuery.eq("credits", numCredits);
+            } else {
+                res.status(400).send({
+                    error: `Invalid credits parameter: ${req.query.credits}`,
+                });
+                return;
+            }
+        }
+
+        if (days.isValid && daysSelectionOption.isValid) {
+            if (daysSelectionOption.option === "COMMON") {
+                //Atleast one common element
+                sectionsQuery.overlaps("days", days.days);
+            } else if (daysSelectionOption.option === "SUBSET") {
+                //All days for class must be present in arr, but arr can also have more days
+                //class is a subset of arr
+                sectionsQuery.containedBy("days", days.days);
+            }
+        }
+
+        if (instructor) {
+            sectionsQuery.eq("instructor", instructor);
+        }
+
+        const { data, error } = await sectionsQuery
+            .limit(limit)
+            .returns<AltSectionTypeWithChildCourseSemesterInfo[]>();
+        if (error) {
+            console.log(error);
+            res.status(500).send({ error: "Internal Server Error" });
+            return;
+        }
+
+        const modifiedData = formatMultiSectionData(data);
+
+        const curatedResponse = {
+            item_count: modifiedData.length,
+            data: modifiedData,
+        };
+
+        res.send(curatedResponse);
+    } catch (error) {
+        console.log(error);
+        res.status(500).send({ error: error.message });
     }
-
-    const modifiedData = formatMultiSectionData(filteredData);
-
-    const curatedResponse = {
-        item_count: modifiedData.length,
-        data: modifiedData,
-    };
-
-    res.send(curatedResponse);
-    return;
 };
 
-function formatMultiSectionData(dataArray: oneCourseType[]) {
-    const formatedDataArray: {
-        row_id: string;
-        semester: string;
-        course_info: AltCourseType;
-        sections: AltSectionType[];
-    }[] = [];
+interface FormatedReturnType extends Omit<AltSectionType, "co_sem_id"> {
+    course_semester_info: CourseSemesterType;
+}
+
+function formatMultiSectionData(
+    dataArray: AltSectionTypeWithChildCourseSemesterInfo[],
+) {
+    const formatedDataArray: FormatedReturnType[] = [];
 
     if (
         dataArray === null ||
@@ -121,18 +141,8 @@ function formatMultiSectionData(dataArray: oneCourseType[]) {
     }
 
     for (const data of dataArray) {
-        const modifiedData = {
-            row_id: data.co_sem_id,
-            course_info: {
-                course_id: data.course_id.course_id,
-                department: data.course_id.department,
-                course_number: data.course_id.course_number,
-                course_name: data.course_id.course_name,
-                credits: data.course_id.credits,
-            },
-            semester: data.semester_id,
-            sections: data.alt_sections,
-        };
+        const modifiedData = { course_semester_info: data.co_sem_id, ...data };
+        delete modifiedData.co_sem_id;
 
         formatedDataArray.push(modifiedData);
     }
