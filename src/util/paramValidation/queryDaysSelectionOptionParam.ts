@@ -12,14 +12,12 @@ export const queryDaysSelectionOptionParam = (
         isValid: false,
         option: null,
     };
-    rawDSO = rawDSO.toUpperCase();
 
     if (rawDSO === null || rawDSO.length === 0) {
         const trueObject: queryDSOReturnType = {
             isValid: true,
             option: "SUBSET",
         };
-
         return trueObject;
     }
 

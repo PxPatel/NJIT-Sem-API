@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import type { Request, Response } from "express";
 import supabase from "../../../supabase/initialize";
 import {
     queryDaysParam,
@@ -141,7 +141,14 @@ function formatMultiSectionData(
     }
 
     for (const data of dataArray) {
-        const modifiedData = { course_semester_info: data.co_sem_id, ...data };
+        const modifiedData = {
+            course_semester_info: {
+                ...data.co_sem_id,
+                course_semester_id: data.co_sem_id.co_sem_id,
+            },
+            ...data,
+        };
+        delete modifiedData.course_semester_info.co_sem_id;
         delete modifiedData.co_sem_id;
 
         formatedDataArray.push(modifiedData);
